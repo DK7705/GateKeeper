@@ -1,0 +1,11 @@
+# =============================================================================
+# Dynamic Inventory — Generated from Terraform output
+# For local development, use this static inventory
+# =============================================================================
+[kubernetes]
+localhost ansible_connection=local
+
+[kubernetes:vars]
+cluster_name=secure-devops-cluster
+environment=development
+kubeconfig_path=~/.kube/config

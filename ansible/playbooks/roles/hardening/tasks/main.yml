@@ -1,0 +1,193 @@
+# =============================================================================
+# CIS Benchmark Level 1 Hardening Role — Tasks
+# Applies Linux hardening controls per CIS benchmarks
+# =============================================================================
+---
+# 1. Filesystem Configuration
+- name: Ensure /tmp is a separate partition with noexec
+  mount:
+    name: /tmp
+    src: tmpfs
+    fstype: tmpfs
+    opts: "defaults,noexec,nosuid,nodev,size=1G"
+    state: mounted
+  tags: [filesystem]
+
+- name: Set permissions on sensitive files
+  file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "/etc/passwd", mode: "0644" }
+    - { path: "/etc/shadow", mode: "0640" }
+    - { path: "/etc/group", mode: "0644" }
+    - { path: "/etc/gshadow", mode: "0640" }
+    - { path: "/etc/ssh/sshd_config", mode: "0600" }
+  tags: [filesystem, permissions]
+
+# 2. SSH Hardening
+- name: Harden SSH configuration
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    backup: yes
+  loop:
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+    - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 4' }
+    - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+    - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+    - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 0' }
+    - { regexp: '^#?LoginGraceTime', line: 'LoginGraceTime 60' }
+    - { regexp: '^#?Protocol', line: 'Protocol 2' }
+    - { regexp: '^#?LogLevel', line: 'LogLevel INFO' }
+    - { regexp: '^#?AllowTcpForwarding', line: 'AllowTcpForwarding no' }
+    - { regexp: '^#?AllowAgentForwarding', line: 'AllowAgentForwarding no' }
+  notify: restart sshd
+  tags: [ssh]
+
+# 3. Kernel Hardening (sysctl)
+- name: Apply kernel security parameters
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+    sysctl_file: /etc/sysctl.d/99-cis-hardening.conf
+  loop:
+    - { name: "net.ipv4.ip_forward", value: "0" }
+    - { name: "net.ipv4.conf.all.send_redirects", value: "0" }
+    - { name: "net.ipv4.conf.default.send_redirects", value: "0" }
+    - { name: "net.ipv4.conf.all.accept_source_route", value: "0" }
+    - { name: "net.ipv4.conf.default.accept_source_route", value: "0" }
+    - { name: "net.ipv4.conf.all.accept_redirects", value: "0" }
+    - { name: "net.ipv4.conf.default.accept_redirects", value: "0" }
+    - { name: "net.ipv4.conf.all.secure_redirects", value: "0" }
+    - { name: "net.ipv4.conf.default.secure_redirects", value: "0" }
+    - { name: "net.ipv4.conf.all.log_martians", value: "1" }
+    - { name: "net.ipv4.conf.default.log_martians", value: "1" }
+    - { name: "net.ipv4.icmp_echo_ignore_broadcasts", value: "1" }
+    - { name: "net.ipv4.icmp_ignore_bogus_error_responses", value: "1" }
+    - { name: "net.ipv4.conf.all.rp_filter", value: "1" }
+    - { name: "net.ipv4.conf.default.rp_filter", value: "1" }
+    - { name: "net.ipv4.tcp_syncookies", value: "1" }
+    - { name: "kernel.randomize_va_space", value: "2" }
+    - { name: "fs.suid_dumpable", value: "0" }
+    - { name: "kernel.core_uses_pid", value: "1" }
+  tags: [kernel]
+
+# 4. User Account Hardening
+- name: Set password aging controls
+  lineinfile:
+    path: /etc/login.defs
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+  loop:
+    - { regexp: '^PASS_MAX_DAYS', line: 'PASS_MAX_DAYS 90' }
+    - { regexp: '^PASS_MIN_DAYS', line: 'PASS_MIN_DAYS 7' }
+    - { regexp: '^PASS_WARN_AGE', line: 'PASS_WARN_AGE 7' }
+    - { regexp: '^PASS_MIN_LEN', line: 'PASS_MIN_LEN 14' }
+  tags: [accounts]
+
+- name: Set default umask
+  lineinfile:
+    path: /etc/profile
+    regexp: '^umask'
+    line: 'umask 027'
+  tags: [accounts]
+
+# 5. Audit Configuration
+- name: Ensure auditd is installed and running
+  package:
+    name: auditd
+    state: present
+  tags: [audit]
+
+- name: Enable and start auditd
+  service:
+    name: auditd
+    state: started
+    enabled: yes
+  tags: [audit]
+
+- name: Configure audit rules
+  copy:
+    dest: /etc/audit/rules.d/cis-hardening.rules
+    content: |
+      # CIS Benchmark Level 1 Audit Rules
+
+      # Ensure events that modify date and time are collected
+      -a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time-change
+      -a always,exit -F arch=b64 -S clock_settime -k time-change
+      -w /etc/localtime -p wa -k time-change
+
+      # Ensure events that modify user/group information are collected
+      -w /etc/group -p wa -k identity
+      -w /etc/passwd -p wa -k identity
+      -w /etc/gshadow -p wa -k identity
+      -w /etc/shadow -p wa -k identity
+      -w /etc/security/opasswd -p wa -k identity
+
+      # Ensure events that modify the system's network environment are collected
+      -a always,exit -F arch=b64 -S sethostname -S setdomainname -k system-locale
+      -w /etc/issue -p wa -k system-locale
+      -w /etc/issue.net -p wa -k system-locale
+      -w /etc/hosts -p wa -k system-locale
+      -w /etc/sysconfig/network -p wa -k system-locale
+
+      # Ensure login and logout events are collected
+      -w /var/log/lastlog -p wa -k logins
+      -w /var/run/faillock/ -p wa -k logins
+
+      # Ensure file deletion events by users are collected
+      -a always,exit -F arch=b64 -S unlink -S unlinkat -S rename -S renameat -F auid>=1000 -F auid!=4294967295 -k delete
+
+      # Ensure sudo command usage is collected
+      -w /etc/sudoers -p wa -k scope
+      -w /etc/sudoers.d/ -p wa -k scope
+    owner: root
+    group: root
+    mode: "0640"
+  notify: restart auditd
+  tags: [audit]
+
+# 6. Firewall Configuration
+- name: Ensure iptables is installed
+  package:
+    name: iptables
+    state: present
+  tags: [firewall]
+
+# 7. Disable unnecessary services
+- name: Disable unnecessary services
+  service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop:
+    - avahi-daemon
+    - cups
+    - rpcbind
+  ignore_errors: yes
+  tags: [services]
+
+# 8. Remove unnecessary packages
+- name: Remove unnecessary packages
+  package:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - telnet
+    - rsh
+    - rsh-server
+    - ypbind
+    - ypserv
+    - tftp
+    - tftp-server
+  ignore_errors: yes
+  tags: [packages]

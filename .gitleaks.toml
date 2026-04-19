@@ -1,0 +1,126 @@
+# =============================================================================
+# Gitleaks 8.18.1 Configuration — Extended Secret Detection Ruleset
+# Extends default rules with organization-specific patterns
+# =============================================================================
+
+title = "Gitleaks Custom Configuration"
+
+[extend]
+# Extend the default Gitleaks ruleset (includes AWS, GCP, GitHub, Slack, etc.)
+useDefault = true
+
+# =============================================================================
+# Organization-Specific Custom Rules
+# =============================================================================
+
+[[rules]]
+id = "org-internal-api-key"
+description = "Organization Internal API Key"
+regex = '''(?i)org[-_]?api[-_]?key\s*[=:]\s*["']?([a-zA-Z0-9\-_]{32,64})["']?'''
+tags = ["key", "organization", "api"]
+keywords = ["org_api_key", "org-api-key"]
+
+[[rules]]
+id = "org-database-connection-string"
+description = "Database Connection String with Credentials"
+regex = '''(?i)(jdbc|mongodb|postgres|mysql|redis):\/\/[^:]+:[^@]+@[^\/\s]+'''
+tags = ["database", "credentials"]
+keywords = ["jdbc:", "mongodb://", "postgres://", "mysql://", "redis://"]
+
+[[rules]]
+id = "org-jwt-secret"
+description = "JWT Secret or Signing Key"
+regex = '''(?i)(jwt[-_]?secret|jwt[-_]?signing[-_]?key|jwt[-_]?private[-_]?key)\s*[=:]\s*["']?([a-zA-Z0-9\-_./+=]{16,})["']?'''
+tags = ["jwt", "secret", "key"]
+keywords = ["jwt_secret", "jwt-secret", "jwt_signing_key"]
+
+[[rules]]
+id = "org-encryption-key"
+description = "Encryption Key (AES/RSA)"
+regex = '''(?i)(encryption[-_]?key|aes[-_]?key|rsa[-_]?key|secret[-_]?key)\s*[=:]\s*["']?([a-zA-Z0-9\-_./+=]{16,128})["']?'''
+tags = ["encryption", "key"]
+keywords = ["encryption_key", "aes_key", "rsa_key"]
+
+[[rules]]
+id = "org-smtp-credentials"
+description = "SMTP Credentials"
+regex = '''(?i)(smtp[-_]?password|mail[-_]?password|email[-_]?password)\s*[=:]\s*["']?([^\s"']{8,})["']?'''
+tags = ["smtp", "email", "credentials"]
+keywords = ["smtp_password", "mail_password"]
+
+[[rules]]
+id = "org-sonarqube-token"
+description = "SonarQube Authentication Token"
+regex = '''(?i)(sonar[-_.]?token|sonar[-_.]?login)\s*[=:]\s*["']?([a-zA-Z0-9]{40})["']?'''
+tags = ["sonarqube", "token"]
+keywords = ["sonar.token", "sonar.login", "sonar_token"]
+
+[[rules]]
+id = "org-kubernetes-secret"
+description = "Kubernetes Secret or Token"
+regex = '''(?i)(k8s[-_]?token|kube[-_]?token|kubernetes[-_]?token)\s*[=:]\s*["']?([a-zA-Z0-9\-_.]+)["']?'''
+tags = ["kubernetes", "token"]
+keywords = ["k8s_token", "kube_token"]
+
+[[rules]]
+id = "org-terraform-backend-key"
+description = "Terraform Backend Access Key"
+regex = '''(?i)(access[-_]?key|secret[-_]?key)\s*=\s*"([A-Z0-9]{16,40})"'''
+tags = ["terraform", "aws", "key"]
+keywords = ["access_key", "secret_key"]
+
+[[rules]]
+id = "org-docker-registry-password"
+description = "Docker Registry Password"
+regex = '''(?i)(docker[-_]?password|registry[-_]?password|docker[-_]?token)\s*[=:]\s*["']?([^\s"']{8,})["']?'''
+tags = ["docker", "registry", "password"]
+keywords = ["docker_password", "registry_password"]
+
+[[rules]]
+id = "org-webhook-secret"
+description = "Webhook Shared Secret"
+regex = '''(?i)(webhook[-_]?secret|hmac[-_]?secret|shared[-_]?secret)\s*[=:]\s*["']?([a-zA-Z0-9\-_./+=]{16,})["']?'''
+tags = ["webhook", "hmac", "secret"]
+keywords = ["webhook_secret", "hmac_secret"]
+
+[[rules]]
+id = "org-spring-datasource-password"
+description = "Spring Datasource Password in Properties/YAML"
+regex = '''(?i)spring\.datasource\.password\s*[=:]\s*["']?([^\s"']{4,})["']?'''
+tags = ["spring", "database", "password"]
+keywords = ["spring.datasource.password"]
+
+[[rules]]
+id = "org-hardcoded-ip-with-port"
+description = "Hardcoded Internal IP with Port"
+regex = '''(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}):\d{2,5}'''
+tags = ["network", "hardcoded"]
+keywords = ["10.", "172.", "192.168."]
+
+# =============================================================================
+# Allowlist — Reduce false positives
+# =============================================================================
+[allowlist]
+description = "Global allowlist for false positives"
+paths = [
+    '''\.gitleaks\.toml$''',
+    '''\.trivyignore$''',
+    '''go\.sum$''',
+    '''package-lock\.json$''',
+    '''yarn\.lock$''',
+    '''\.git/''',
+    '''vendor/''',
+    '''node_modules/''',
+    '''docs/.*\.md$''',
+    '''test/.*fixtures/''',
+]
+regexTarget = "match"
+regexes = [
+    '''EXAMPLE_''',
+    '''example\.com''',
+    '''localhost''',
+    '''127\.0\.0\.1''',
+    '''CHANGE[-_]?ME''',
+    '''your[-_]?api[-_]?key[-_]?here''',
+    '''PLACEHOLDER''',
+]

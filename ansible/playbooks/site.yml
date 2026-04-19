@@ -1,0 +1,116 @@
+# =============================================================================
+# Ansible Site Playbook — Main entry point
+# Applies CIS hardening, then deploys the application
+# =============================================================================
+---
+- name: Apply CIS Benchmark Level 1 Hardening
+  hosts: kubernetes
+  become: yes
+  gather_facts: yes
+  vars:
+    environment: "{{ lookup('env', 'ENVIRONMENT') | default('production', true) }}"
+    cluster_name: "{{ lookup('env', 'CLUSTER_NAME') | default('secure-devops-cluster', true) }}"
+
+  roles:
+    - role: hardening
+      tags: [hardening, security]
+
+  tasks:
+    - name: Verify hardening applied
+      debug:
+        msg: "CIS Level 1 hardening applied to {{ inventory_hostname }}"
+      tags: [verify]
+
+- name: Deploy Application to Kubernetes
+  hosts: kubernetes
+  become: no
+  gather_facts: no
+  vars:
+    app_version: "{{ lookup('env', 'BUILD_NUMBER') | default('latest', true) }}"
+    namespace: "secure-app"
+    image_registry: "{{ lookup('env', 'IMAGE_REGISTRY') | default('localhost:5000', true) }}"
+
+  tasks:
+    - name: Ensure namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ namespace }}"
+            labels:
+              environment: "{{ environment | default('production') }}"
+      tags: [deploy]
+
+    - name: Apply RBAC configuration
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ playbook_dir }}/../kubernetes/rbac.yaml"
+      tags: [deploy, rbac]
+
+    - name: Apply Network Policies
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ playbook_dir }}/../kubernetes/network-policy.yaml"
+      tags: [deploy, network]
+
+    - name: Deploy database credentials secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: db-credentials
+            namespace: "{{ namespace }}"
+          type: Opaque
+          stringData:
+            db-username: "{{ db_username | default('appuser') }}"
+            db-password: "{{ db_password | default('CHANGE_ME') }}"
+            user-db-url: "jdbc:postgresql://postgresql:5432/userdb"
+            order-db-url: "jdbc:postgresql://postgresql:5432/orderdb"
+      tags: [deploy, secrets]
+      no_log: true
+
+    - name: Deploy PostgreSQL
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ playbook_dir }}/../kubernetes/service.yaml"
+      tags: [deploy, database]
+
+    - name: Deploy Blue environment
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ playbook_dir }}/../kubernetes/blue-deployment.yaml"
+      tags: [deploy, blue]
+
+    - name: Wait for Blue deployment to be ready
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: secure-app-blue
+        namespace: "{{ namespace }}"
+      register: blue_deployment
+      until: >-
+        blue_deployment.resources | length > 0 and
+        blue_deployment.resources[0].status.readyReplicas | default(0) ==
+        blue_deployment.resources[0].spec.replicas
+      retries: 30
+      delay: 10
+      tags: [deploy, verify]
+
+    - name: Verify deployment health
+      uri:
+        url: "http://{{ service_endpoint | default('localhost') }}:8080/health"
+        method: GET
+        return_content: yes
+        status_code: 200
+      register: health_check
+      retries: 5
+      delay: 5
+      tags: [deploy, verify]
+
+    - name: Display deployment status
+      debug:
+        msg: "Deployment successful — version {{ app_version }} is live"
+      tags: [deploy, verify]

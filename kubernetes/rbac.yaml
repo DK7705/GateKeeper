@@ -1,0 +1,80 @@
+# =============================================================================
+# RBAC — Namespace-scoped, no cluster-admin for app service accounts
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-service-account
+  namespace: secure-app
+  labels:
+    app: secure-app
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deployer-service-account
+  namespace: secure-app
+  labels:
+    app: secure-app
+    purpose: ci-cd
+automountServiceAccountToken: false
+---
+# App Role — minimal read permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: app-role
+  namespace: secure-app
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-role-binding
+  namespace: secure-app
+subjects:
+  - kind: ServiceAccount
+    name: app-service-account
+    namespace: secure-app
+roleRef:
+  kind: Role
+  name: app-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Deployer Role — CI/CD pipeline deploy permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deployer-role
+  namespace: secure-app
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer-role-binding
+  namespace: secure-app
+subjects:
+  - kind: ServiceAccount
+    name: deployer-service-account
+    namespace: secure-app
+roleRef:
+  kind: Role
+  name: deployer-role
+  apiGroup: rbac.authorization.k8s.io

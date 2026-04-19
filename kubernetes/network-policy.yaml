@@ -1,0 +1,149 @@
+# =============================================================================
+# Network Policies — Least-privilege pod communication
+# =============================================================================
+
+# Default deny all ingress traffic in app namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: secure-app
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Default deny all egress traffic in app namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: secure-app
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+---
+# Allow API Gateway to receive external ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: secure-app
+spec:
+  podSelector:
+    matchLabels:
+      app: secure-app
+      tier: gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+---
+# Allow API Gateway egress to backend services and DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-egress
+  namespace: secure-app
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+      tier: gateway
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: backend
+      ports:
+        - port: 8081
+          protocol: TCP
+        - port: 8082
+          protocol: TCP
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Allow backend services to receive traffic from gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-from-gateway
+  namespace: secure-app
+spec:
+  podSelector:
+    matchLabels:
+      tier: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+              tier: gateway
+      ports:
+        - port: 8081
+          protocol: TCP
+        - port: 8082
+          protocol: TCP
+---
+# Allow backend services egress to database and DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-database
+  namespace: secure-app
+spec:
+  podSelector:
+    matchLabels:
+      tier: backend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgresql
+              tier: database
+      ports:
+        - port: 5432
+          protocol: TCP
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Allow Prometheus to scrape all app pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: secure-app
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 8081
+          protocol: TCP
+        - port: 8082
+          protocol: TCP

@@ -1,0 +1,51 @@
+# === Build artifacts ===
+target/
+*.class
+*.jar
+*.war
+
+# === IDE ===
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Docker ===
+docker-compose.override.yml
+
+# === Terraform ===
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+tfplan
+.terraform.lock.hcl
+
+# === Ansible ===
+*.retry
+dynamic-inventory
+
+# === Node ===
+node_modules/
+package-lock.json
+
+# === Logs ===
+*.log
+
+# === Reports (generated at build time) ===
+trivy-report.json
+hadolint-report.json
+gitleaks-report.json
+sast-report.json
+tfsec-report.json
+
+# === Secrets (never commit real ones) ===
+*.pem
+*.key
+kubeconfig

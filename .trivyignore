@@ -1,0 +1,27 @@
+# =============================================================================
+# Trivy Ignore File — Acknowledged False Positives / Accepted Risks
+# Each entry must have a documented justification and an expiry date.
+# After the expiry date, the vulnerability must be re-evaluated.
+# =============================================================================
+
+# Format: CVE-ID  # Justification | Expiry: YYYY-MM-DD | Approved by: Name
+
+# Example entries (uncomment and modify as needed):
+# CVE-2023-99999  # False positive: function not reachable in our code path | Expiry: 2024-06-30 | Approved by: Security Team
+# CVE-2023-88888  # Mitigated by WAF rules and input validation | Expiry: 2024-03-31 | Approved by: AppSec Lead
+
+# =============================================================================
+# ACTIVE IGNORES — Re-evaluate before expiry
+# =============================================================================
+
+# CVE-2023-5363   # OpenSSL: low severity in our context, no TLS termination in container | Expiry: 2024-12-31 | Approved by: Security Lead
+# CVE-2023-44487  # HTTP/2 Rapid Reset: mitigated at ingress controller level | Expiry: 2024-09-30 | Approved by: Platform Team
+
+# =============================================================================
+# POLICY: All entries MUST include:
+#   1. CVE identifier
+#   2. Justification for ignoring
+#   3. Expiry date (maximum 90 days from addition)
+#   4. Approver name/team
+# Entries without expiry dates will be rejected in code review.
+# =============================================================================

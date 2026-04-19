@@ -1,0 +1,100 @@
+{
+  "index_patterns": ["app-logs-*"],
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 1,
+    "index.lifecycle.name": "app-logs-policy",
+    "index.lifecycle.rollover_alias": "app-logs",
+    "index.refresh_interval": "5s",
+    "index.mapping.total_fields.limit": 2000,
+    "analysis": {
+      "analyzer": {
+        "log_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "stop"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "@timestamp": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "service_name": {
+        "type": "keyword"
+      },
+      "environment": {
+        "type": "keyword"
+      },
+      "cluster": {
+        "type": "keyword"
+      },
+      "app": {
+        "properties": {
+          "timestamp": {
+            "type": "date"
+          },
+          "level": {
+            "type": "keyword"
+          },
+          "service": {
+            "type": "keyword"
+          },
+          "logger": {
+            "type": "keyword"
+          },
+          "message": {
+            "type": "text",
+            "analyzer": "log_analyzer",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 512
+              }
+            }
+          },
+          "thread": {
+            "type": "keyword"
+          },
+          "trace_id": {
+            "type": "keyword"
+          },
+          "span_id": {
+            "type": "keyword"
+          }
+        }
+      },
+      "pipeline_build": {
+        "type": "keyword"
+      },
+      "code_change_id": {
+        "type": "keyword"
+      },
+      "tags": {
+        "type": "keyword"
+      },
+      "type": {
+        "type": "keyword"
+      },
+      "geoip": {
+        "properties": {
+          "location": {
+            "type": "geo_point"
+          },
+          "country_name": {
+            "type": "keyword"
+          },
+          "city_name": {
+            "type": "keyword"
+          }
+        }
+      }
+    }
+  },
+  "aliases": {
+    "app-logs": {}
+  }
+}

@@ -1,0 +1,29 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: api-gateway
+
+logging:
+  level:
+    root: INFO
+    com.example.gateway: DEBUG
+  pattern:
+    console: '{"timestamp":"%d{ISO8601}","level":"%level","service":"api-gateway","logger":"%logger","message":"%msg","thread":"%thread"}%n'

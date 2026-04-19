@@ -1,0 +1,153 @@
+# =============================================================================
+# Service — Traffic router for Blue-Green deployments
+# Routes to active environment via label selector
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: secure-app-service
+  namespace: secure-app
+  labels:
+    app: secure-app
+    managed-by: jenkins
+  annotations:
+    description: "Blue-Green traffic router — selector switches between blue and green"
+spec:
+  type: ClusterIP
+  selector:
+    app: secure-app
+    version: blue  # Switch to 'green' during blue-green deployment
+  ports:
+    - name: http-gateway
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+    - name: http-user
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+    - name: http-order
+      port: 8082
+      targetPort: 8082
+      protocol: TCP
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: secure-app
+  labels:
+    app: postgresql
+    tier: database
+spec:
+  type: ClusterIP
+  selector:
+    app: postgresql
+    tier: database
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: secure-app
+  labels:
+    app: postgresql
+    tier: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+      tier: database
+  template:
+    metadata:
+      labels:
+        app: postgresql
+        tier: database
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: postgresql
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: db-username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: db-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - $(POSTGRES_USER)
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - $(POSTGRES_USER)
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+---
+# PostgreSQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: secure-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Database Credentials Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: secure-app
+type: Opaque
+stringData:
+  db-username: "appuser"
+  db-password: "CHANGE_ME_IN_PRODUCTION"
+  user-db-url: "jdbc:postgresql://postgresql:5432/userdb"
+  order-db-url: "jdbc:postgresql://postgresql:5432/orderdb"

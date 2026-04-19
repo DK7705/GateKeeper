@@ -1,0 +1,318 @@
+# =============================================================================
+# Docker Compose — Local Development Stack
+# Runs all services: Jenkins, SonarQube, Prometheus, Grafana, ELK Stack
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Jenkins — CI/CD Orchestration
+  # ===========================================================================
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    container_name: jenkins
+    user: root
+    privileged: true
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Xmx2g
+      - JENKINS_OPTS=--prefix=/
+      - CASC_JENKINS_CONFIG=/var/jenkins_home/casc.yaml
+    networks:
+      - devops_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ===========================================================================
+  # SonarQube 10.3 — SAST and Code Quality
+  # ===========================================================================
+  sonarqube:
+    image: sonarqube:10.3-community
+    container_name: sonarqube
+    ports:
+      - "9000:9000"
+    environment:
+      - SONAR_JDBC_URL=jdbc:postgresql://sonar_db:5432/sonar
+      - SONAR_JDBC_USERNAME=sonar
+      - SONAR_JDBC_PASSWORD=sonar
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    networks:
+      - devops_net
+    depends_on:
+      sonar_db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/api/system/status | grep -q 'UP'"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # SonarQube PostgreSQL Database
+  sonar_db:
+    image: postgres:15-alpine
+    container_name: sonar_db
+    environment:
+      - POSTGRES_USER=sonar
+      - POSTGRES_PASSWORD=sonar
+      - POSTGRES_DB=sonar
+    volumes:
+      - postgres_sonar:/var/lib/postgresql/data
+    networks:
+      - devops_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Application PostgreSQL Database
+  # ===========================================================================
+  app_db:
+    image: postgres:15-alpine
+    container_name: app_db
+    environment:
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=appuser_password
+      - POSTGRES_DB=userdb
+    volumes:
+      - postgres_app:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - devops_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d userdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Trivy — Container Vulnerability Scanner (CLI)
+  # ===========================================================================
+  trivy:
+    image: aquasec/trivy:0.48.3
+    container_name: trivy
+    volumes:
+      - trivy_cache:/root/.cache/trivy
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: ["sleep", "infinity"]
+    networks:
+      - devops_net
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Gitleaks — Secret Detection (CLI)
+  # ===========================================================================
+  gitleaks:
+    image: zricethezav/gitleaks:v8.18.1
+    container_name: gitleaks
+    volumes:
+      - .:/repo:ro
+    entrypoint: ["sleep", "infinity"]
+    networks:
+      - devops_net
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Prometheus 2.49 — Metrics Collection
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:v2.49.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alertmanager-rules.yml:/etc/prometheus/alertmanager-rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    networks:
+      - devops_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Alertmanager — Alert Routing
+  # ===========================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - devops_net
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Grafana 10.3 — Metrics Visualization
+  # ===========================================================================
+  grafana:
+    image: grafana/grafana:10.3.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-dashboard.json:/var/lib/grafana/dashboards/devsecops.json:ro
+    networks:
+      - devops_net
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Elasticsearch — Log Storage
+  # ===========================================================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - cluster.name=secure-devops-logging
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - devops_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=30s"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
+  # ===========================================================================
+  # Logstash — Log Processing Pipeline
+  # ===========================================================================
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.10.2
+    container_name: logstash
+    ports:
+      - "5044:5044"
+      - "5045:5045"
+      - "9600:9600"
+    volumes:
+      - ./monitoring/logstash-pipeline.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+    networks:
+      - devops_net
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Kibana — Log Visualization
+  # ===========================================================================
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.10.2
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_NAME=kibana
+    networks:
+      - devops_net
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status | grep -q 'available'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  jenkins_home:
+    driver: local
+  sonarqube_data:
+    driver: local
+  sonarqube_extensions:
+    driver: local
+  sonarqube_logs:
+    driver: local
+  postgres_sonar:
+    driver: local
+  postgres_app:
+    driver: local
+  trivy_cache:
+    driver: local
+  prometheus_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  devops_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
